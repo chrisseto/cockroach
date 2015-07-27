@@ -20,6 +20,7 @@ package storage
 import (
 	"container/heap"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/cockroach/proto"
@@ -105,7 +106,7 @@ type baseQueue struct {
 	priorityQ  priorityQueue               // The priority queue
 	ranges     map[proto.RaftID]*rangeItem // Map from RaftID to rangeItem (for updating priority)
 	// Some tests in this package disable queues.
-	disabled bool
+	disabled int32 // updated atomically
 }
 
 // newBaseQueue returns a new instance of baseQueue with the
@@ -131,10 +132,29 @@ func (bq *baseQueue) Length() int {
 	return bq.priorityQ.Len()
 }
 
+// SetDisabled turns queue processing off or on as directed.
+func (bq *baseQueue) SetDisabled(disabled bool) {
+	if disabled {
+		atomic.StoreInt32(&bq.disabled, 1)
+	} else {
+		atomic.StoreInt32(&bq.disabled, 0)
+	}
+}
+
 // Start launches a goroutine to process entries in the queue. The
 // provided stopper is used to finish processing.
 func (bq *baseQueue) Start(clock *hlc.Clock, stopper *stop.Stopper) {
 	bq.processLoop(clock, stopper)
+}
+
+// Add adds the specified range to the queue, regardless of the return
+// value of bq.shouldQueue. The range is added with priority 1. If the
+// queue is too full, the range may not be added. Returns true if the
+// range was added; false otherwise.
+func (bq *baseQueue) Add(rng *Range) bool {
+	bq.Lock()
+	defer bq.Unlock()
+	return bq.addInternal(rng, true, 1.0)
 }
 
 // MaybeAdd adds the specified range if bq.shouldQueue specifies it should
@@ -144,21 +164,29 @@ func (bq *baseQueue) Start(clock *hlc.Clock, stopper *stop.Stopper) {
 func (bq *baseQueue) MaybeAdd(rng *Range, now proto.Timestamp) {
 	bq.Lock()
 	defer bq.Unlock()
-
-	if bq.disabled {
-		return
-	}
 	should, priority := bq.impl.shouldQueue(now, rng)
+	bq.addInternal(rng, should, priority)
+}
+
+// internalAdd adds the range the queue with specified priority. If the
+// range is already queued, updates the existing priority. Expects the
+// queue lock is held by caller. Returns true if the range was queued;
+// false otherwise.
+func (bq *baseQueue) addInternal(rng *Range, should bool, priority float64) bool {
+	log.Infof("adding range %s to queue %s", rng, bq.name)
+	if atomic.LoadInt32(&bq.disabled) == 1 {
+		return false
+	}
 	item, ok := bq.ranges[rng.Desc().RaftID]
 	if !should {
 		if ok {
 			bq.remove(item.index)
 		}
-		return
+		return false
 	} else if ok {
 		// Range has already been added; update priority.
 		bq.priorityQ.update(item, priority)
-		return
+		return true
 	}
 
 	if log.V(1) {
@@ -179,6 +207,7 @@ func (bq *baseQueue) MaybeAdd(rng *Range, now proto.Timestamp) {
 	default:
 		// No need to signal again.
 	}
+	return true
 }
 
 // MaybeRemove removes the specified range from the queue if enqueued.
@@ -208,6 +237,7 @@ func (bq *baseQueue) processLoop(clock *hlc.Clock, stopper *stop.Stopper) {
 			// Incoming signal sets the next time to process if there were previously
 			// no ranges in the queue.
 			case <-bq.incoming:
+				log.Infof("processLoop for queue %s", bq.name)
 				if nextTime == nil {
 					// When the first range is added, wake up immediately. This is
 					// mainly to facilitate testing without unnecessary sleeps.

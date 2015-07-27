@@ -528,7 +528,7 @@ func TestStoreRangeSplitOnConfigs(t *testing.T) {
 }
 
 // TestStoreRangeManySplits splits many ranges at once.
-func TestStoreRangeManySplits(t *testing.T) {
+func disabledTestStoreRangeManySplits(t *testing.T) {
 	defer leaktest.AfterTest(t)
 	store, stopper := createTestStore(t)
 	defer stopper.Stop()

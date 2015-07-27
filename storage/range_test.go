@@ -147,7 +147,7 @@ func (tc *testContext) Start(t testing.TB) {
 		ctx := TestStoreContext
 		ctx.Clock = tc.clock
 		ctx.Gossip = tc.gossip
-		ctx.Transport = tc.transport
+		ctx.RaftTransport = tc.transport
 		ctx.EventFeed = tc.feed
 		// Create a test sender without setting a store. This is to deal with the
 		// circular dependency between the test sender and the store. The actual
@@ -168,7 +168,7 @@ func (tc *testContext) Start(t testing.TB) {
 		// Now that we have our actual store, monkey patch the sender used in ctx.DB.
 		sender.store = tc.store
 		// We created the store without a real KV client, so it can't perform splits.
-		tc.store._splitQueue.disabled = true
+		tc.store.SplitQueue().SetDisabled(true)
 
 		if tc.rng == nil && tc.bootstrapMode == bootstrapRangeWithMetadata {
 			if err := tc.store.BootstrapRange(); err != nil {
@@ -258,7 +258,7 @@ func TestRangeContains(t *testing.T) {
 	defer transport.Close()
 	ctx := TestStoreContext
 	ctx.Clock = clock
-	ctx.Transport = multiraft.NewLocalRPCTransport()
+	ctx.RaftTransport = multiraft.NewLocalRPCTransport()
 	store := NewStore(ctx, e, &proto.NodeDescriptor{NodeID: 1})
 	r, err := NewRange(desc, store)
 	if err != nil {

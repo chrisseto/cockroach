@@ -112,7 +112,7 @@ func BootstrapCluster(clusterID string, engines []engine.Engine, stopper *stop.S
 	if ctx.DB, err = client.Open("//root@", client.SenderOpt(sender)); err != nil {
 		return nil, err
 	}
-	ctx.Transport = multiraft.NewLocalRPCTransport()
+	ctx.RaftTransport = multiraft.NewLocalRPCTransport()
 	for i, eng := range engines {
 		sIdent := proto.StoreIdent{
 			ClusterID: clusterID,
@@ -495,4 +495,9 @@ func (n *Node) executeCmd(argsI gogoproto.Message) (gogoproto.Message, error) {
 		trace.Event(fmt.Sprintf("error: %T", err))
 	}
 	return reply, nil
+}
+
+// InternalRangeGC .
+func (n *nodeServer) InternalRangeGC(args *proto.InternalRangeGCRequest, reply *proto.InternalRangeGCResponse) error {
+	return n.executeCmd(args, reply)
 }

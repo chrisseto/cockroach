@@ -172,8 +172,8 @@ func createTestStoreWithoutStart(t *testing.T) (*Store, *hlc.ManualClock, *stop.
 	manual := hlc.NewManualClock(0)
 	ctx.Clock = hlc.NewClock(manual.UnixNano)
 	eng := engine.NewInMem(proto.Attributes{}, 10<<20)
-	ctx.Transport = multiraft.NewLocalRPCTransport()
-	stopper.AddCloser(ctx.Transport)
+	ctx.RaftTransport = multiraft.NewLocalRPCTransport()
+	stopper.AddCloser(ctx.RaftTransport)
 	sender := &testSender{}
 	var err error
 	if ctx.DB, err = client.Open("//root@", client.SenderOpt(sender)); err != nil {
@@ -210,9 +210,9 @@ func TestStoreInitAndBootstrap(t *testing.T) {
 	manual := hlc.NewManualClock(0)
 	ctx.Clock = hlc.NewClock(manual.UnixNano)
 	eng := engine.NewInMem(proto.Attributes{}, 1<<20)
-	ctx.Transport = multiraft.NewLocalRPCTransport()
+	ctx.RaftTransport = multiraft.NewLocalRPCTransport()
 	stopper := stop.NewStopper()
-	stopper.AddCloser(ctx.Transport)
+	stopper.AddCloser(ctx.RaftTransport)
 	defer stopper.Stop()
 	store := NewStore(ctx, eng, &proto.NodeDescriptor{NodeID: 1})
 
@@ -260,9 +260,9 @@ func TestBootstrapOfNonEmptyStore(t *testing.T) {
 	ctx := TestStoreContext
 	manual := hlc.NewManualClock(0)
 	ctx.Clock = hlc.NewClock(manual.UnixNano)
-	ctx.Transport = multiraft.NewLocalRPCTransport()
+	ctx.RaftTransport = multiraft.NewLocalRPCTransport()
 	stopper := stop.NewStopper()
-	stopper.AddCloser(ctx.Transport)
+	stopper.AddCloser(ctx.RaftTransport)
 	defer stopper.Stop()
 	store := NewStore(ctx, eng, &proto.NodeDescriptor{NodeID: 1})
 

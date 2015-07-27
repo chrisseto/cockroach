@@ -27,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cockroachdb/c-snappy"
+	snappy "github.com/cockroachdb/c-snappy"
 	"github.com/cockroachdb/cockroach/client"
 	"github.com/cockroachdb/cockroach/gossip"
 	"github.com/cockroachdb/cockroach/gossip/resolver"
@@ -126,7 +126,8 @@ func NewServer(ctx *Context, stopper *stop.Stopper) (*Server, error) {
 		return nil, err
 	}
 
-	s.raftTransport, err = newRPCTransport(s.gossip, s.rpc, rpcContext)
+	transport := storage.NewRPCTransport(s.gossip, rpcContext)
+	s.raftTransport, err = newRaftTransport(transport, s.rpc)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +147,8 @@ func NewServer(ctx *Context, stopper *stop.Stopper) (*Server, error) {
 		Clock:           s.clock,
 		DB:              s.db,
 		Gossip:          s.gossip,
-		Transport:       s.raftTransport,
+		Transport:       transport,
+		RaftTransport:   s.raftTransport,
 		ScanInterval:    s.ctx.ScanInterval,
 		ScanMaxIdleTime: s.ctx.ScanMaxIdleTime,
 		EventFeed:       feed,

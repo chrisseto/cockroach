@@ -635,6 +635,7 @@ func TestVerifyPermissions(t *testing.T) {
 		&proto.InternalTruncateLogRequest{},
 		&proto.InternalLeaderLeaseRequest{},
 		&proto.InternalBatchRequest{},
+		&proto.InternalRangeGCRequest{},
 	}
 
 	var readOnlyRequests []proto.Request
