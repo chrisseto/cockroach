@@ -328,6 +328,49 @@ func compareNodeStatus(t *testing.T, ts *TestServer, expectedNodeStatus *status.
 	return nodeStatus
 }
 
+// syncFeed ensures that the event feed has been fully flushed.
+func syncFeed(t *testing.T, ts *TestServer) {
+	syncEvent := status.NewTestSyncEvent(1)
+	ts.EventFeed().Publish(syncEvent)
+	if err := syncEvent.Sync(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// forceWriteStatus forces summaries to be written synchronously, including all
+// data currently in the event pipeline. Only one of the stores has replicas, so
+// there are no concerns related to quorum writes; if there were multiple
+// replicas, more care would need to be taken in the initial syncFeed().
+
+func forceWriteStatus(t *testing.T, ts *TestServer) {
+	syncFeed(t, ts)
+	if err := ts.node.publishStoreStatuses(); err != nil {
+		t.Fatalf("error publishing store statuses: %s", err)
+	}
+	syncFeed(t, ts)
+	if err := ts.writeSummaries(); err != nil {
+		t.Fatalf("error writing summaries: %s", err)
+	}
+}
+
+// waitForStoreReplication waits until the store is replicated correctly to
+// avoid continuing the test.
+func waitForStoreReplication(t *testing.T, ts *TestServer, store *storage.Store, expectedCount int32, testNumber int) {
+	storeStatusKey := keys.StoreStatusKey(int32(store.Ident.StoreID))
+	for {
+		forceWriteStatus(t, ts)
+		storeStatus := &storage.StoreStatus{}
+		if err := ts.db.GetProto(storeStatusKey, storeStatus); err != nil {
+			t.Fatalf("%d: failure getting store status: %s", testNumber, err)
+		}
+		if storeStatus.ReplicatedRangeCount == expectedCount {
+			// The store is replicated.
+			return
+		}
+		t.Log("store not replicated yet, waiting")
+	}
+}
+
 // compareStoreStatus ensures that the actual store status for the passed in
 // store is updated correctly. It checks that the Desc.StoreID, Desc.Attrs,
 // Desc.Node, Desc.Capacity.Capacity, NodeID, RangeCount, ReplicatedRangeCount
@@ -452,32 +495,9 @@ func TestStatusSummaries(t *testing.T) {
 		},
 	}
 
-	// Function to ensure that the event feed has been fully flushed.
-	syncFeed := func() {
-		syncEvent := status.NewTestSyncEvent(1)
-		ts.EventFeed().Publish(syncEvent)
-		if err := syncEvent.Sync(5 * time.Second); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Function to force summaries to be written synchronously, including all
-	// data currently in the event pipeline. Only one of the stores has
-	// replicas, so there are no concerns related to quorum writes; if there
-	// were multiple replicas, more care would need to be taken in the initial
-	// syncFeed().
-	forceWriteStatus := func() {
-		syncFeed()
-		if err := ts.node.publishStoreStatuses(); err != nil {
-			t.Fatalf("error publishing store statuses: %s", err)
-		}
-		syncFeed()
-		if err := ts.writeSummaries(); err != nil {
-			t.Fatalf("error writing summaries: %s", err)
-		}
-	}
-
-	forceWriteStatus()
+	// Don't start the test until the first range is fully replicated.
+	// ForceWriteStatus is called from within waitForStoreReplication.
+	waitForStoreReplication(t, ts, s, 1, 0)
 	oldNodeStats := compareNodeStatus(t, ts, expectedNodeStatus, 0)
 	oldStoreStats := compareStoreStatus(t, ts, s, expectedStoreStatus, 0)
 
@@ -525,7 +545,7 @@ func TestStatusSummaries(t *testing.T) {
 		},
 	}
 
-	forceWriteStatus()
+	forceWriteStatus(t, ts)
 	oldNodeStats = compareNodeStatus(t, ts, expectedNodeStatus, 1)
 	oldStoreStats = compareStoreStatus(t, ts, s, expectedStoreStatus, 1)
 
@@ -584,7 +604,7 @@ func TestStatusSummaries(t *testing.T) {
 			ValCount:  oldStoreStats.Stats.ValCount,
 		},
 	}
-	forceWriteStatus()
+	forceWriteStatus(t, ts)
 	oldNodeStats = compareNodeStatus(t, ts, expectedNodeStatus, 2)
 	oldStoreStats = compareStoreStatus(t, ts, s, expectedStoreStatus, 2)
 
@@ -630,7 +650,7 @@ func TestStatusSummaries(t *testing.T) {
 			ValCount:  oldStoreStats.Stats.ValCount + 1,
 		},
 	}
-	forceWriteStatus()
+	waitForStoreReplication(t, ts, s, 2, 3)
 	compareNodeStatus(t, ts, expectedNodeStatus, 3)
 	compareStoreStatus(t, ts, s, expectedStoreStatus, 3)
 }
